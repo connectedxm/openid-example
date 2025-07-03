@@ -1,0 +1,13 @@
+[
+  {
+    "client_id": "test-client-1",
+    "client_secret": "test-secret-1",
+    "client_name": "Test Client 1",
+    "redirect_uris": [
+      "http://localhost:3000/callback",
+      "https://myapp.example.com/callback"
+    ],
+    "allowed_scopes": ["openid", "email", "profile"],
+    "grant_types": ["authorization_code"]
+  }
+] 
