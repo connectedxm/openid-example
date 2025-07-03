@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction, RequestHandler } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -8,19 +8,15 @@ import users from './data/users.json';
 import TokenGenerator from './utils/tokenGenerator';
 import keyManager from './utils/keyManager';
 import authStore from './stores/authStore';
-import { generateAuthorizationCode, verifyCodeChallenge } from './utils/pkce';
+import crypto from 'crypto';
 
 const app = express();
 
+// Configuration
 const PROTOCOL = process.env.RAILWAY_PUBLIC_DOMAIN ? 'https' : 'http';
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ISSUER = process.env.RAILWAY_PUBLIC_DOMAIN || `localhost:${PORT}`;
 const FULL_ISSUER = `${PROTOCOL}://${ISSUER}`;
-
-console.log(`[CONFIG] RAILWAY_PUBLIC_DOMAIN: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'not set'}`);
-console.log(`[CONFIG] PROTOCOL: ${PROTOCOL}`);
-console.log(`[CONFIG] ISSUER: ${ISSUER}`);
-console.log(`[CONFIG] FULL_ISSUER: ${FULL_ISSUER}`);
 
 // Initialize token generator
 const tokenGenerator = new TokenGenerator(FULL_ISSUER);
@@ -31,197 +27,82 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Request logging middleware
+// Simple request logging
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const timestamp = new Date().toISOString();
-  const method = req.method;
-  const url = req.url;
-  const userAgent = req.get('User-Agent') || 'unknown';
-  const ip = req.ip || req.connection.remoteAddress || 'unknown';
-  
-  console.log(`[${timestamp}] ${method} ${url} - IP: ${ip} - User-Agent: ${userAgent}`);
-  
-  // Log request body for POST requests (but redact sensitive data)
-  if (method === 'POST' && req.body) {
-    const sanitizedBody = { ...req.body };
-    if (sanitizedBody.password) sanitizedBody.password = '[REDACTED]';
-    if (sanitizedBody.client_secret) sanitizedBody.client_secret = '[REDACTED]';
-    if (sanitizedBody.code_verifier) sanitizedBody.code_verifier = '[REDACTED]';
-    console.log(`[${timestamp}] Request Body:`, sanitizedBody);
-  }
-  
-  // Log query parameters
-  if (Object.keys(req.query).length > 0) {
-    const sanitizedQuery = { ...req.query };
-    if (sanitizedQuery.code) sanitizedQuery.code = '[REDACTED]';
-    console.log(`[${timestamp}] Query Params:`, sanitizedQuery);
-  }
-  
-  // Log response
-  const originalSend = res.send;
-  res.send = function(data) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] Response: ${res.statusCode} ${res.statusMessage || ''}`);
-    if (res.statusCode >= 400) {
-      console.log(`[${timestamp}] Error Response Body:`, typeof data === 'string' ? data : JSON.stringify(data));
-    }
-    return originalSend.call(this, data);
-  };
-  
+  console.log(`${req.method} ${req.url}`);
   next();
 });
 
 // Helper functions
 function authenticateClient(clientId: string, clientSecret?: string): Client | undefined {
-  console.log(`[AUTH] Attempting to authenticate client: ${clientId}`);
-  console.log(`[AUTH] Client secret provided: ${clientSecret ? 'YES' : 'NO'}`);
-  
   const client = clients.find((c: Client) => c.client_id === clientId);
-  if (!client) {
-    console.error(`[AUTH] ❌ Client not found: ${clientId}`);
-    console.error(`[AUTH] Available clients: ${clients.map(c => c.client_id).join(', ')}`);
-    return undefined;
-  }
-  
-  console.log(`[AUTH] ✅ Client found: ${client.client_name} (${client.client_id})`);
+  if (!client) return undefined;
   
   // For public clients or when secret not required
-  if (!clientSecret) {
-    console.log(`[AUTH] ✅ No client secret required, returning client`);
-    return client;
-  }
+  if (!clientSecret) return client;
   
   // Verify secret for confidential clients
-  const isValidSecret = client.client_secret === clientSecret;
-  if (!isValidSecret) {
-    console.error(`[AUTH] ❌ Invalid client secret for client: ${clientId}`);
-    console.error(`[AUTH] Expected secret length: ${client.client_secret?.length || 0}`);
-    console.error(`[AUTH] Provided secret length: ${clientSecret.length}`);
-  } else {
-    console.log(`[AUTH] ✅ Client secret validated successfully`);
-  }
-  
-  return isValidSecret ? client : undefined;
+  return client.client_secret === clientSecret ? client : undefined;
 }
 
 function authenticateUser(email: string, password: string): User | undefined {
-  console.log(`[USER_AUTH] Attempting to authenticate user: ${email}`);
-  
-  const user = users.find((u: User) => u.email === email && u.password === password);
-  if (!user) {
-    console.error(`[USER_AUTH] ❌ User authentication failed for: ${email}`);
-    console.log(`[USER_AUTH] Available users: ${users.map(u => u.email).join(', ')}`);
-  } else {
-    console.log(`[USER_AUTH] ✅ User authenticated successfully: ${user.name} (${user.sub})`);
-  }
-  
-  return user;
+  return users.find((u: User) => u.email === email && u.password === password);
 }
 
 function parseScopes(scopeString: string): string[] {
   return scopeString ? scopeString.split(' ').filter(s => s.length > 0) : [];
 }
 
-// Discovery endpoint
+// OpenID Connect Discovery Document
+// This tells clients where to find all the OAuth/OIDC endpoints
 app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
-  
   const config = {
     issuer: FULL_ISSUER,
     authorization_endpoint: `${FULL_ISSUER}/authorize`,
     token_endpoint: `${FULL_ISSUER}/token`,
     userinfo_endpoint: `${FULL_ISSUER}/userinfo`,
     jwks_uri: `${FULL_ISSUER}/jwks`,
-    end_session_endpoint: `${FULL_ISSUER}/logout`,
     response_types_supported: ['code'],
-    response_modes_supported: ['query', 'fragment', 'form_post'],
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['RS256', 'HS256'],
-    userinfo_signing_alg_values_supported: ['RS256', 'HS256'],
+    id_token_signing_alg_values_supported: ['RS256'],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
-    scopes_supported: ['openid', 'email', 'profile', 'phone', 'address'],
-    claims_supported: [
-      // Standard JWT claims
-      'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
-      // Email scope claims
-      'email', 'email_verified',
-      // Profile scope claims
-      'name', 'given_name', 'family_name', 'picture', 'preferred_username',
-      'locale', 'updated_at', 'zoneinfo', 'birthdate', 'gender', 'website',
-      // Phone scope claims
-      'phone_number', 'phone_number_verified',
-      // Address scope claims
-      'address', 'address.street_address', 'address.locality', 'address.region',
-      'address.postal_code', 'address.country',
-      // Custom claims for enterprise use
-      'custom_department', 'custom_employee_id', 'custom_role'
-    ],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
-    code_challenge_methods_supported: ['S256'],
-    request_parameter_supported: false,
-    request_uri_parameter_supported: false,
-    require_request_uri_registration: false,
-    claims_parameter_supported: false,
-    // Additional metadata for better client compatibility
-    display_values_supported: ['page'],
-    claim_types_supported: ['normal'],
-    service_documentation: `${FULL_ISSUER}/docs`,
-    ui_locales_supported: ['en-US', 'en'],
-    claims_locales_supported: ['en-US', 'en'],
-    // Indicate which scopes provide which claims
-    scope_to_claims_mapping: {
-      'openid': ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce'],
-      'email': ['email', 'email_verified'],
-      'profile': ['name', 'given_name', 'family_name', 'picture', 'preferred_username', 'locale', 'updated_at', 'zoneinfo', 'birthdate', 'gender', 'website'],
-      'phone': ['phone_number', 'phone_number_verified'],
-      'address': ['address']
-    }
+    scopes_supported: ['openid', 'email', 'profile'],
+    claims_supported: ['sub', 'email', 'first_name', 'last_name', 'referenceId'],
+    grant_types_supported: ['authorization_code']
   };
 
   res.json(config);
-  return;
 });
 
-// JWKS endpoint
+// JSON Web Key Set (JWKS) endpoint
+// Provides public keys for verifying JWT signatures
 app.get('/jwks', async (req: Request, res: Response) => {
-  console.log(`[JWKS] JWKS requested`);
-  
   try {
     const jwks = await keyManager.getJWKS();
-    console.log(`[JWKS] ✅ Generated JWKS with ${jwks.keys.length} keys`);
     res.json(jwks);
-    return;
   } catch (error) {
-    console.error(`[JWKS] ❌ Error generating JWKS:`, error);
+    console.error('Error generating JWKS:', error);
     res.status(500).json({
       error: 'server_error',
       error_description: 'Failed to generate JWKS'
     });
-    return;
   }
 });
 
 // Authorization endpoint - GET (display login page)
+// This is where the OAuth flow begins
 app.get('/authorize', (req: Request, res: Response) => {
-  console.log(`[AUTHORIZE] Authorization request received`);
-  
   const {
     client_id,
     redirect_uri,
     response_type,
     scope,
     state,
-    nonce,
-    code_challenge,
-    code_challenge_method
+    nonce
   } = req.query;
-
-  console.log(`[AUTHORIZE] Parameters: client_id=${client_id}, redirect_uri=${redirect_uri}, response_type=${response_type}`);
-  console.log(`[AUTHORIZE] Scope: ${scope}, State: ${state}, Nonce: ${nonce ? 'provided' : 'not provided'}`);
-  console.log(`[AUTHORIZE] PKCE: code_challenge=${code_challenge ? 'provided' : 'not provided'}, method=${code_challenge_method}`);
 
   // Validate required parameters
   if (!client_id || !redirect_uri || !response_type) {
-    console.error(`[AUTHORIZE] ❌ Missing required parameters`);
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'Missing required parameters'
@@ -230,55 +111,40 @@ app.get('/authorize', (req: Request, res: Response) => {
   }
 
   // Validate client
-  console.log(`[AUTHORIZE] Validating client: ${client_id}`);
   const client = clients.find((c: Client) => c.client_id === client_id);
   if (!client) {
-    console.error(`[AUTHORIZE] ❌ Unknown client: ${client_id}`);
     res.status(400).json({
       error: 'invalid_client',
       error_description: 'Unknown client'
     });
     return;
   }
-  console.log(`[AUTHORIZE] ✅ Client validated: ${client.client_name}`);
 
   // Validate redirect URI
-  console.log(`[AUTHORIZE] Validating redirect URI: ${redirect_uri}`);
-  console.log(`[AUTHORIZE] Allowed redirect URIs: ${client.redirect_uris.join(', ')}`);
   if (!client.redirect_uris.includes(redirect_uri as string)) {
-    console.error(`[AUTHORIZE] ❌ Invalid redirect_uri: ${redirect_uri}`);
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'Invalid redirect_uri'
     });
     return;
   }
-  console.log(`[AUTHORIZE] ✅ Redirect URI validated`);
 
-  // Validate response type
-  console.log(`[AUTHORIZE] Validating response type: ${response_type}`);
+  // Validate response type (only authorization code flow supported)
   if (response_type !== 'code') {
-    console.error(`[AUTHORIZE] ❌ Unsupported response type: ${response_type}`);
     res.status(400).json({
       error: 'unsupported_response_type',
       error_description: 'Only authorization code flow is supported'
     });
     return;
   }
-  console.log(`[AUTHORIZE] ✅ Response type validated`);
 
   // Check for existing session
   const sessionId = req.cookies?.session;
-  console.log(`[AUTHORIZE] Checking for existing session: ${sessionId ? 'found' : 'not found'}`);
-  
   if (sessionId) {
     const session = authStore.getSession(sessionId);
     if (session) {
-      console.log(`[AUTHORIZE] ✅ Valid session found for user: ${session.userId}`);
-      console.log(`[AUTHORIZE] Generating authorization code and redirecting`);
-      
-      // User already logged in, generate code and redirect
-      const authCode = generateAuthorizationCode();
+      // User already logged in, generate authorization code and redirect
+      const authCode = crypto.randomBytes(32).toString('hex');
       authStore.saveAuthCode({
         code: authCode,
         clientId: client_id as string,
@@ -287,157 +153,54 @@ app.get('/authorize', (req: Request, res: Response) => {
         scope: scope as string || 'openid',
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         nonce: nonce as string,
-        state: state as string,
-        codeChallenge: code_challenge as string,
-        codeChallengeMethod: code_challenge_method as string === 'S256' ? 'S256' : 'S256'
+        state: state as string
       });
 
-      console.log(`[AUTHORIZE] ✅ Authorization code generated and saved`);
-      
       const redirectUrl = new URL(redirect_uri as string);
       redirectUrl.searchParams.set('code', authCode);
       if (state) redirectUrl.searchParams.set('state', state as string);
       
-      console.log(`[AUTHORIZE] ✅ Redirecting to: ${redirectUrl.toString()}`);
       res.redirect(redirectUrl.toString());
       return;
-    } else {
-      console.log(`[AUTHORIZE] Session ID found but session invalid/expired`);
     }
   }
 
   // No session, show login page
-  console.log(`[AUTHORIZE] No valid session, showing login page`);
   res.sendFile(path.join(__dirname, '..', 'src', 'views', 'login.html'));
-  return;
-});
-
-// Authorization endpoint - POST (handle login)
-app.post('/authorize', (req: Request, res: Response) => {
-  console.log(`[LOGIN] Login attempt received`);
-  
-  const { email, password } = req.body;
-  const {
-    client_id,
-    redirect_uri,
-    response_type,
-    scope,
-    state,
-    nonce,
-    code_challenge,
-    code_challenge_method
-  } = req.query;
-
-  console.log(`[LOGIN] Login attempt for: ${email}`);
-  console.log(`[LOGIN] Client ID: ${client_id}`);
-
-  // Authenticate user
-  const user = authenticateUser(email, password);
-  if (!user) {
-    console.error(`[LOGIN] ❌ Login failed for: ${email}`);
-    
-    // Redirect back to login with error
-    const loginUrl = new URL(`${FULL_ISSUER}/authorize`);
-    Object.entries(req.query).forEach(([key, value]) => {
-      if (value) loginUrl.searchParams.set(key, value as string);
-    });
-    loginUrl.searchParams.set('error', 'invalid_credentials');
-    
-    console.log(`[LOGIN] Redirecting back to login with error: ${loginUrl.toString()}`);
-    res.redirect(loginUrl.toString());
-    return;
-  }
-  
-  console.log(`[LOGIN] ✅ Login successful for: ${user.name} (${user.sub})`);
-
-  // Create session
-  console.log(`[LOGIN] Creating session for user: ${user.sub}`);
-  const sessionId = authStore.createSession(user.sub);
-  res.cookie('session', sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 1000 // 1 hour
-  });
-  console.log(`[LOGIN] ✅ Session created: ${sessionId}`);
-
-  // Generate authorization code
-  console.log(`[LOGIN] Generating authorization code`);
-  const authCode = generateAuthorizationCode();
-  authStore.saveAuthCode({
-    code: authCode,
-    clientId: client_id as string,
-    userId: user.sub,
-    redirectUri: redirect_uri as string,
-    scope: scope as string || 'openid',
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-    nonce: nonce as string,
-    state: state as string,
-    codeChallenge: code_challenge as string,
-    codeChallengeMethod: code_challenge_method as string === 'S256' ? 'S256' : 'S256'
-  });
-  console.log(`[LOGIN] ✅ Authorization code generated and saved`);
-
-  // Redirect back to client with auth code
-  const redirectUrl = new URL(redirect_uri as string);
-  redirectUrl.searchParams.set('code', authCode);
-  if (state) redirectUrl.searchParams.set('state', state as string);
-
-  console.log(`[LOGIN] ✅ Redirecting to client: ${redirectUrl.toString()}`);
-  res.redirect(redirectUrl.toString());
-  return;
 });
 
 // Token endpoint
+// Exchanges authorization code for access token and ID token
 app.post('/token', (req: Request, res: Response) => {
-  console.log(`[TOKEN] Token request received`);
-  
   const { 
     grant_type, 
     client_id, 
     client_secret, 
     code, 
-    redirect_uri,
-    code_verifier,
-    scope 
+    redirect_uri
   } = req.body;
 
-  console.log(`[TOKEN] Grant type: ${grant_type}`);
-  console.log(`[TOKEN] Client ID: ${client_id}`);
-  console.log(`[TOKEN] Client secret provided: ${client_secret ? 'YES' : 'NO'}`);
-  console.log(`[TOKEN] Authorization code provided: ${code ? 'YES' : 'NO'}`);
-  console.log(`[TOKEN] Redirect URI: ${redirect_uri}`);
-  console.log(`[TOKEN] Code verifier provided: ${code_verifier ? 'YES' : 'NO'}`);
-  console.log(`[TOKEN] Scope: ${scope}`);
-
-  // Support both client_secret_post and client_secret_basic methods
+  // Support both client_secret_post and client_secret_basic authentication methods
   let clientId = client_id;
   let clientSecret = client_secret;
 
-  // Handle client_secret_basic authentication
-  if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
-    console.log(`[TOKEN] Using client_secret_basic authentication`);
+  // Handle HTTP Basic authentication
+  if (req.headers.authorization?.startsWith('Basic ')) {
     try {
       const credentials = Buffer.from(req.headers.authorization.slice(6), 'base64').toString('utf-8');
       const [basicClientId, basicClientSecret] = credentials.split(':');
       clientId = basicClientId;
       clientSecret = basicClientSecret;
-      console.log(`[TOKEN] Extracted client ID from Basic auth: ${clientId}`);
     } catch (error) {
-      console.error(`[TOKEN] ❌ Invalid Basic authentication header`);
       res.status(400).json({
         error: 'invalid_client',
         error_description: 'Invalid Basic authentication header'
       });
       return;
     }
-  } else {
-    console.log(`[TOKEN] Using client_secret_post authentication`);
   }
 
-  // Validate client credentials are provided
   if (!clientId) {
-    console.error(`[TOKEN] ❌ client_id is required`);
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'client_id is required'
@@ -447,10 +210,7 @@ app.post('/token', (req: Request, res: Response) => {
 
   // Handle authorization code grant
   if (grant_type === 'authorization_code') {
-    console.log(`[TOKEN] Processing authorization code grant`);
-    
     if (!code || !redirect_uri) {
-      console.error(`[TOKEN] ❌ Missing required parameters: code=${!!code}, redirect_uri=${!!redirect_uri}`);
       res.status(400).json({
         error: 'invalid_request',
         error_description: 'Missing required parameters'
@@ -459,107 +219,46 @@ app.post('/token', (req: Request, res: Response) => {
     }
 
     // Get and validate authorization code
-    console.log(`[TOKEN] Looking up authorization code`);
     const authCode = authStore.consumeAuthCode(code);
     if (!authCode) {
-      console.error(`[TOKEN] ❌ Invalid or expired authorization code`);
       res.status(400).json({
         error: 'invalid_grant',
         error_description: 'Invalid or expired authorization code'
       });
       return;
     }
-    
-    console.log(`[TOKEN] ✅ Authorization code found and consumed`);
-    console.log(`[TOKEN] Auth code details: clientId=${authCode.clientId}, userId=${authCode.userId}, scope=${authCode.scope}`);
 
     // Validate client
-    console.log(`[TOKEN] Validating client authentication`);
     const client = authenticateClient(clientId, clientSecret);
     if (!client || client.client_id !== authCode.clientId) {
-      console.error(`[TOKEN] ❌ Client authentication failed`);
-      console.error(`[TOKEN] Provided client ID: ${clientId}`);
-      console.error(`[TOKEN] Auth code client ID: ${authCode.clientId}`);
-      console.error(`[TOKEN] Client found: ${!!client}`);
-      console.error(`[TOKEN] Client ID match: ${client?.client_id === authCode.clientId}`);
       res.status(401).json({
         error: 'invalid_client',
         error_description: 'Client authentication failed'
       });
       return;
     }
-    
-    console.log(`[TOKEN] ✅ Client authentication successful`);
 
     // Validate redirect URI
-    console.log(`[TOKEN] Validating redirect URI`);
-    console.log(`[TOKEN] Auth code redirect URI: ${authCode.redirectUri}`);
-    console.log(`[TOKEN] Provided redirect URI: ${redirect_uri}`);
     if (authCode.redirectUri !== redirect_uri) {
-      console.error(`[TOKEN] ❌ Redirect URI mismatch`);
       res.status(400).json({
         error: 'invalid_grant',
         error_description: 'Redirect URI mismatch'
       });
       return;
     }
-    console.log(`[TOKEN] ✅ Redirect URI validated`);
-
-    // Validate PKCE if code challenge was used
-    if (authCode.codeChallenge) {
-      console.log(`[TOKEN] Validating PKCE`);
-      console.log(`[TOKEN] Code challenge method: ${authCode.codeChallengeMethod}`);
-      
-      if (!code_verifier) {
-        console.error(`[TOKEN] ❌ Code verifier required but not provided`);
-        res.status(400).json({
-          error: 'invalid_request',
-          error_description: 'Code verifier required'
-        });
-        return;
-      }
-
-      const validPKCE = verifyCodeChallenge(
-        code_verifier,
-        authCode.codeChallenge,
-        authCode.codeChallengeMethod || 'S256'
-      );
-
-      if (!validPKCE) {
-        console.error(`[TOKEN] ❌ Invalid code verifier`);
-        res.status(400).json({
-          error: 'invalid_grant',
-          error_description: 'Invalid code verifier'
-        });
-        return;
-      }
-      
-      console.log(`[TOKEN] ✅ PKCE validation successful`);
-    } else {
-      console.log(`[TOKEN] No PKCE validation required`);
-    }
 
     // Get user
-    console.log(`[TOKEN] Looking up user: ${authCode.userId}`);
     const user = users.find((u: User) => u.sub === authCode.userId);
     if (!user) {
-      console.error(`[TOKEN] ❌ User not found: ${authCode.userId}`);
       res.status(400).json({
         error: 'invalid_grant',
         error_description: 'User not found'
       });
       return;
     }
-    
-    console.log(`[TOKEN] ✅ User found: ${user.name} (${user.sub})`);
-    console.log(`[TOKEN] 📋 Available user data for token generation:`);
-    console.log(`[TOKEN] ${JSON.stringify(user, null, 2)}`);
 
     // Generate tokens
-    console.log(`[TOKEN] Generating tokens`);
     const scopes = parseScopes(authCode.scope);
-    console.log(`[TOKEN] Parsed scopes: ${scopes.join(', ')}`);
-    
     const tokenResponse = tokenGenerator.generateTokenResponse(
       clientId,
       scopes,
@@ -567,53 +266,23 @@ app.post('/token', (req: Request, res: Response) => {
       authCode.nonce
     );
 
-    console.log(`[TOKEN] ✅ Token response generated successfully`);
-    console.log(`[TOKEN] Response includes: access_token=${!!tokenResponse.access_token}, id_token=${!!tokenResponse.id_token}, refresh_token=${!!tokenResponse.refresh_token}`);
-    
-    // Log ID token contents for Cognito attribute mapping
-    if (tokenResponse.id_token) {
-      try {
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.decode(tokenResponse.id_token);
-        console.log(`[TOKEN] 🔍 ID Token Contents for Cognito Attribute Mapping:`);
-        console.log(`[TOKEN] ${JSON.stringify(decoded, null, 2)}`);
-        console.log(`[TOKEN] 📋 Available fields for Cognito mapping: ${Object.keys(decoded || {}).join(', ')}`);
-      } catch (error) {
-        console.error(`[TOKEN] ❌ Error decoding ID token for logging:`, error);
-      }
-    }
-    
     res.json(tokenResponse);
     return;
   }
 
-  // Handle refresh token grant
-  if (grant_type === 'refresh_token') {
-    console.log(`[TOKEN] Refresh token grant requested (not implemented)`);
-    res.status(400).json({
-      error: 'unsupported_grant_type',
-      error_description: 'Refresh token grant not implemented'
-    });
-    return;
-  }
-
   // Unsupported grant type
-  console.error(`[TOKEN] ❌ Unsupported grant type: ${grant_type}`);
   res.status(400).json({
     error: 'unsupported_grant_type',
     error_description: 'Grant type not supported'
   });
-  return;
 });
 
-// Userinfo endpoint
+// UserInfo endpoint
+// Returns user information based on the access token
 app.get('/userinfo', (req: Request, res: Response) => {
-  console.log(`[USERINFO] UserInfo request received`);
-  
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.error(`[USERINFO] ❌ No valid authorization header`);
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({
       error: 'invalid_token',
       error_description: 'Access token required'
@@ -622,252 +291,77 @@ app.get('/userinfo', (req: Request, res: Response) => {
   }
 
   const accessToken = authHeader.slice(7);
-  console.log(`[USERINFO] Access token provided: ${accessToken.substring(0, 20)}...`);
 
   try {
     const userInfo = tokenGenerator.getUserInfo(accessToken);
-    console.log(`[USERINFO] ✅ UserInfo retrieved for subject: ${userInfo.sub}`);
     res.json(userInfo);
-    return;
   } catch (error) {
-    console.error(`[USERINFO] ❌ Invalid or expired access token:`, error);
     res.status(401).json({
       error: 'invalid_token',
       error_description: 'Invalid or expired access token'
     });
-    return;
   }
 });
 
-// Logout endpoint (optional but useful)
+// Logout endpoint
 app.get('/logout', (req: Request, res: Response) => {
-  console.log(`[LOGOUT] Logout request received`);
-  
   const sessionId = req.cookies?.session;
   if (sessionId) {
-    console.log(`[LOGOUT] Deleting session: ${sessionId}`);
     authStore.deleteSession(sessionId);
     res.clearCookie('session');
-    console.log(`[LOGOUT] ✅ Session deleted and cookie cleared`);
-  } else {
-    console.log(`[LOGOUT] No session found to delete`);
   }
   
   const { redirect_uri } = req.query;
   if (redirect_uri) {
-    console.log(`[LOGOUT] Redirecting to: ${redirect_uri}`);
     res.redirect(redirect_uri as string);
-    return;
   } else {
-    console.log(`[LOGOUT] ✅ Logout completed, no redirect`);
     res.send('Logged out successfully');
-    return;
   }
-});
-
-// Claims mapping endpoint for Cognito administrators
-app.get('/claims-info', (req: Request, res: Response) => {
-  console.log(`[CLAIMS_INFO] Claims information requested`);
-  
-  const claimsInfo = {
-    provider: 'OpenID Connect Test Provider',
-    issuer: FULL_ISSUER,
-    claims_available: {
-      standard_claims: {
-        'sub': { description: 'Subject identifier (unique user ID)', always_present: true, example: 'user-123456' },
-        'email': { description: 'Email address', scope: 'email', example: 'john.doe@example.com' },
-        'email_verified': { description: 'Email verification status', scope: 'email', example: true },
-        'name': { description: 'Full name', scope: 'profile', example: 'John Doe' },
-        'given_name': { description: 'First name', scope: 'profile', example: 'John' },
-        'family_name': { description: 'Last name', scope: 'profile', example: 'Doe' },
-        'picture': { description: 'Profile picture URL', scope: 'profile', example: 'https://example.com/photo.jpg' },
-        'preferred_username': { description: 'Username', scope: 'profile', example: 'johndoe' },
-        'locale': { description: 'Locale/language preference', scope: 'profile', example: 'en-US' },
-        'zoneinfo': { description: 'Timezone', scope: 'profile', example: 'America/New_York' },
-        'updated_at': { description: 'Last profile update timestamp', scope: 'profile', example: '2024-01-15T10:30:00Z' },
-        'birthdate': { description: 'Date of birth', scope: 'profile', example: '1990-05-15' },
-        'gender': { description: 'Gender', scope: 'profile', example: 'male' },
-        'website': { description: 'Personal website URL', scope: 'profile', example: 'https://johndoe.com' },
-        'phone_number': { description: 'Phone number', scope: 'phone', example: '+1-555-123-4567' },
-        'phone_number_verified': { description: 'Phone verification status', scope: 'phone', example: true },
-        'address': { description: 'Full address object', scope: 'address', example: { street_address: '123 Main St', locality: 'New York', region: 'NY', postal_code: '10001', country: 'US' } }
-      },
-      custom_claims: {
-        'custom_department': { description: 'Department/Division', always_present: true, example: 'Engineering', cognito_mapping: 'custom:department' },
-        'custom_employee_id': { description: 'Employee ID', always_present: true, example: 'EMP001', cognito_mapping: 'custom:employee_id' },
-        'custom_role': { description: 'Job role/title', always_present: true, example: 'Senior Developer', cognito_mapping: 'custom:role' }
-      }
-    },
-    cognito_mapping_suggestions: {
-      'Standard Attributes': {
-        'email': 'email',
-        'given_name': 'given_name',
-        'family_name': 'family_name',
-        'name': 'name',
-        'picture': 'picture',
-        'preferred_username': 'preferred_username',
-        'locale': 'locale',
-        'zoneinfo': 'zoneinfo',
-        'updated_at': 'updated_at',
-        'birthdate': 'birthdate',
-        'gender': 'gender',
-        'website': 'website',
-        'phone_number': 'phone_number',
-        'phone_number_verified': 'phone_number_verified'
-      },
-      'Custom Attributes': {
-        'custom_department': 'custom:department',
-        'custom_employee_id': 'custom:employee_id',
-        'custom_role': 'custom:role'
-      },
-      'Address Attributes': {
-        'address.street_address': 'address',
-        'address.locality': 'custom:city',
-        'address.region': 'custom:state',
-        'address.postal_code': 'custom:postal_code',
-        'address.country': 'custom:country'
-      }
-    },
-    sample_id_token: {
-      note: 'This is what your ID token will look like',
-      payload: {
-        'iss': FULL_ISSUER,
-        'sub': 'user-123456',
-        'aud': 'your-client-id',
-        'exp': Math.floor(Date.now() / 1000) + 3600,
-        'iat': Math.floor(Date.now() / 1000),
-        'auth_time': Math.floor(Date.now() / 1000),
-        'email': 'john.doe@example.com',
-        'email_verified': true,
-        'name': 'John Doe',
-        'given_name': 'John',
-        'family_name': 'Doe',
-        'picture': 'https://example.com/john-doe.jpg',
-        'preferred_username': 'johndoe',
-        'locale': 'en-US',
-        'zoneinfo': 'America/New_York',
-        'updated_at': '2024-01-15T10:30:00Z',
-        'phone_number': '+1-555-123-4567',
-        'phone_number_verified': true,
-        'address': {
-          'street_address': '123 Main St',
-          'locality': 'New York',
-          'region': 'NY',
-          'postal_code': '10001',
-          'country': 'US'
-        },
-        'birthdate': '1990-05-15',
-        'gender': 'male',
-        'website': 'https://johndoe.com',
-        'custom_department': 'Engineering',
-        'custom_employee_id': 'EMP001',
-        'custom_role': 'Senior Developer'
-      }
-    }
-  };
-  
-  res.json(claimsInfo);
-  console.log(`[CLAIMS_INFO] ✅ Claims information sent`);
-  return;
 });
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-  console.log(`[HEALTH] Health check requested`);
-  
-  const baseUrl = FULL_ISSUER;
-  
   res.json({ 
     status: 'ok', 
-    issuer: ISSUER,
-    baseUrl: baseUrl,
+    issuer: FULL_ISSUER,
     endpoints: {
       discovery: '/.well-known/openid-configuration',
       jwks: '/jwks',
       authorization: '/authorize',
       token: '/token',
       userinfo: '/userinfo'
-    },
-    clients: clients.map(c => ({
-      client_id: c.client_id,
-      client_name: c.client_name,
-      redirect_uris: c.redirect_uris
-    }))
+    }
   });
-  
-  console.log(`[HEALTH] ✅ Health check response sent`);
-  return;
 });
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  const timestamp = new Date().toISOString();
-  console.error(`[ERROR] ${timestamp} - Unhandled error:`, err.stack);
-  console.error(`[ERROR] Request: ${req.method} ${req.url}`);
-  console.error(`[ERROR] User-Agent: ${req.get('User-Agent')}`);
-  
+  console.error('Server error:', err.message);
   res.status(500).json({
     error: 'server_error',
     error_description: 'An internal server error occurred'
   });
-  return;
 });
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  const baseUrl = FULL_ISSUER;
-  
   console.log(`
-╔════════════════════════════════════════════════════════════════════════════════════════╗
-║                            🚀 OpenID Connect Provider Started                           ║
-╠════════════════════════════════════════════════════════════════════════════════════════╣
-║ Server URL: ${baseUrl.padEnd(72)} ║
-║ Environment: ${(process.env.NODE_ENV || 'development').padEnd(69)} ║
-║ Port: ${PORT.toString().padEnd(80)} ║
-║ Issuer: ${ISSUER.padEnd(78)} ║
-╚════════════════════════════════════════════════════════════════════════════════════════╝
+🚀 OpenID Connect Provider Started
+Server: ${FULL_ISSUER}
+Port: ${PORT}
+
+📋 Endpoints:
+  Discovery: ${FULL_ISSUER}/.well-known/openid-configuration
+  JWKS:      ${FULL_ISSUER}/jwks
+  Authorize: ${FULL_ISSUER}/authorize
+  Token:     ${FULL_ISSUER}/token
+  UserInfo:  ${FULL_ISSUER}/userinfo
+  Health:    ${FULL_ISSUER}/health
+
+🔐 Demo Users:
+  Email: john.doe@example.com | Password: password123
+  Email: jane.smith@example.com | Password: password456
+
+🎯 Ready for AWS Cognito integration!
   `);
-  
-  console.log(`📋 Available endpoints:`);
-  console.log(`   Discovery: ${baseUrl}/.well-known/openid-configuration`);
-  console.log(`   JWKS:      ${baseUrl}/jwks`);
-  console.log(`   Authorize: ${baseUrl}/authorize`);
-  console.log(`   Token:     ${baseUrl}/token`);
-  console.log(`   UserInfo:  ${baseUrl}/userinfo`);
-  console.log(`   Health:    ${baseUrl}/health`);
-  console.log(`   Logout:    ${baseUrl}/logout`);
-  console.log(`   Claims:    ${baseUrl}/claims-info (📋 For Cognito attribute mapping)`);
-  
-  console.log(`\n🔐 Configured Clients (${clients.length}):`);
-  clients.forEach((client: Client, index) => {
-    console.log(`   ${index + 1}. ${client.client_name}`);
-    console.log(`      Client ID: ${client.client_id}`);
-    console.log(`      Client Secret: ${client.client_secret || 'N/A (public client)'}`);
-    console.log(`      Grant Types: ${client.grant_types.join(', ')}`);
-    console.log(`      Allowed Scopes: ${client.allowed_scopes.join(', ')}`);
-    console.log(`      Redirect URIs:`);
-    client.redirect_uris.forEach(uri => {
-      console.log(`        - ${uri}`);
-    });
-    console.log('');
-  });
-  
-  console.log(`👥 Demo Users (${users.length}):`);
-  users.forEach((user: User, index) => {
-    console.log(`   ${index + 1}. ${user.name} (${user.email})`);
-    console.log(`      Subject: ${user.sub}`);
-    console.log(`      Password: ${user.password}`);
-    console.log('');
-  });
-  
-  console.log(`🔧 Debug Features:`);
-  console.log(`   - Comprehensive request/response logging`);
-  console.log(`   - Client authentication debugging`);
-  console.log(`   - PKCE verification logging`);
-  console.log(`   - Session management logging`);
-  console.log(`   - Token generation/validation logging`);
-  
-  console.log(`\n✅ Server ready to accept requests!`);
-  console.log(`📊 Use the /health endpoint to verify server status`);
-  console.log(`🔍 All requests will be logged with detailed information`);
 }); 

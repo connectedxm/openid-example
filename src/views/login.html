@@ -60,6 +60,7 @@
             border: 1px solid #ddd;
             border-radius: 8px;
             font-size: 16px;
+            transition: border-color 0.3s;
         }
 
         input[type="email"]:focus,
@@ -69,128 +70,107 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        .error-message {
-            background: #fee;
-            border: 1px solid #fcc;
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .error {
+            background-color: #fee;
             color: #c33;
             padding: 12px;
             border-radius: 8px;
             margin-bottom: 20px;
             font-size: 14px;
-            display: none;
-        }
-
-        .error-message.show {
-            display: block;
-        }
-
-        .submit-button {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .submit-button:hover {
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
         .demo-users {
-            background: #f7f9fc;
-            border-radius: 8px;
-            padding: 16px;
-            margin-top: 20px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
         }
 
         .demo-users h3 {
-            font-size: 14px;
             color: #666;
-            margin-bottom: 12px;
+            font-size: 14px;
+            margin-bottom: 10px;
         }
 
         .demo-user {
-            background: white;
-            border: 1px solid #e1e8f0;
+            background: #f8f9fa;
+            padding: 8px 12px;
             border-radius: 6px;
-            padding: 10px;
             margin-bottom: 8px;
-            font-size: 13px;
-        }
-
-        .demo-user code {
-            font-family: monospace;
-            background: #f1f3f5;
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
-
-        .client-info {
-            margin-top: 20px;
-            text-align: center;
+            font-size: 12px;
             color: #666;
-            font-size: 13px;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="logo">
-            <h1>Sign In</h1>
+            <h1>🔐 OpenID Connect</h1>
         </div>
 
-        <div id="errorMessage" class="error-message"></div>
+        <script>
+            // Show error message if present in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('error') === 'invalid_credentials') {
+                document.write('<div class="error">Invalid email or password. Please try again.</div>');
+            }
+        </script>
 
-        <form id="loginForm" method="POST">
+        <form method="POST">
             <div class="form-group">
-                <label for="email">Email Address</label>
-                <input type="email" id="email" name="email" required autofocus>
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autocomplete="email">
             </div>
 
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
             </div>
 
-            <button type="submit" class="submit-button">Sign In</button>
+            <button type="submit" class="btn">Sign In</button>
         </form>
 
         <div class="demo-users">
-            <h3>Demo Users</h3>
+            <h3>Demo Users:</h3>
             <div class="demo-user">
-                Email: <code>john.doe@example.com</code><br>
-                Password: <code>password123</code>
+                📧 john.doe@example.com | 🔑 password123
             </div>
             <div class="demo-user">
-                Email: <code>jane.smith@example.com</code><br>
-                Password: <code>password456</code>
+                📧 jane.smith@example.com | 🔑 password456
             </div>
-        </div>
-
-        <div class="client-info">
-            Requesting application: <strong id="clientName">Loading...</strong>
         </div>
     </div>
 
     <script>
-        // Get client name from query params
-        const urlParams = new URLSearchParams(window.location.search);
-        const clientId = urlParams.get('client_id');
-        document.getElementById('clientName').textContent = clientId || 'Unknown';
-
-        // Show error if present
-        const error = urlParams.get('error');
-        if (error) {
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = error === 'invalid_credentials' 
-                ? 'Invalid email or password.' 
-                : 'An error occurred.';
-            errorDiv.classList.add('show');
-        }
+        // Preserve query parameters in form submission
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const form = e.target;
+            const currentParams = new URLSearchParams(window.location.search);
+            
+            // Remove error parameter if it exists
+            currentParams.delete('error');
+            
+            // Add current parameters to form action
+            if (currentParams.toString()) {
+                form.action = '?' + currentParams.toString();
+            }
+        });
     </script>
 </body>
 </html> 

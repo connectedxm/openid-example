@@ -15,6 +15,7 @@ class KeyManager {
     this.keyPair = this.generateKeyPair();
   }
 
+  // Generate RSA key pair for JWT signing
   private generateKeyPair(): KeyPair {
     const { publicKey, privateKey } = generateKeyPairSync('rsa', {
       modulusLength: 2048,
@@ -47,6 +48,7 @@ class KeyManager {
     return this.keyPair.kid;
   }
 
+  // Generate JSON Web Key Set (JWKS) for public key distribution
   async getJWKS(): Promise<any> {
     try {
       // Use node-jose to properly convert PEM to JWK
@@ -84,6 +86,7 @@ class KeyManager {
     }
   }
 
+  // Sign JWT token with private key
   signToken(payload: any, expiresIn: string = '1h'): string {
     return jwt.sign(payload, this.keyPair.privateKey, {
       algorithm: 'RS256',
@@ -95,6 +98,7 @@ class KeyManager {
     } as jwt.SignOptions);
   }
 
+  // Verify JWT token with public key
   verifyToken(token: string): any {
     return jwt.verify(token, this.keyPair.publicKey, {
       algorithms: ['RS256']

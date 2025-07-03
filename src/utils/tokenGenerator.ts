@@ -14,13 +14,14 @@ interface TokenResponse {
 
 export default class TokenGenerator {
   private issuer: string;
-  private accessTokenExpiry: number = 3600; // 1 hour
-  private idTokenExpiry: number = 3600; // 1 hour
+  private accessTokenExpiry = 3600; // 1 hour
+  private idTokenExpiry = 3600; // 1 hour
 
   constructor(issuer: string) {
     this.issuer = issuer;
   }
 
+  // Generate complete token response for OAuth/OIDC flow
   generateTokenResponse(
     clientId: string,
     scopes: string[],
@@ -51,6 +52,7 @@ export default class TokenGenerator {
     return response;
   }
 
+  // Generate JWT access token
   private generateAccessToken(clientId: string, scopes: string[], user?: User): string {
     const payload: any = {
       jti: uuidv4(),
@@ -72,6 +74,7 @@ export default class TokenGenerator {
     });
   }
 
+  // Generate JWT ID token with user claims based on scopes
   private generateIdToken(
     clientId: string,
     scopes: string[],
@@ -89,7 +92,7 @@ export default class TokenGenerator {
       auth_time: now
     };
 
-    // Add nonce if provided
+    // Add nonce if provided (for security)
     if (nonce) {
       claims.nonce = nonce;
     }
@@ -98,40 +101,13 @@ export default class TokenGenerator {
     if (user) {
       if (scopes.includes('email')) {
         claims.email = user.email;
-        claims.email_verified = user.email_verified;
       }
 
       if (scopes.includes('profile')) {
-        claims.name = user.name;
-        claims.given_name = user.given_name;
-        claims.family_name = user.family_name;
-        claims.picture = user.picture;
-        claims.preferred_username = user.preferred_username;
-        
-        // Add additional profile fields
-        if (user.locale) claims.locale = user.locale;
-        if (user.zoneinfo) claims.zoneinfo = user.zoneinfo;
-        if (user.updated_at) claims.updated_at = user.updated_at;
-        if (user.birthdate) claims.birthdate = user.birthdate;
-        if (user.gender) claims.gender = user.gender;
-        if (user.website) claims.website = user.website;
+        claims.first_name = user.first_name;
+        claims.last_name = user.last_name;
+        claims.referenceId = user.referenceId;
       }
-
-      // Add phone claims if available (phone scope or profile scope)
-      if (scopes.includes('phone') || scopes.includes('profile')) {
-        if (user.phone_number) claims.phone_number = user.phone_number;
-        if (user.phone_number_verified !== undefined) claims.phone_number_verified = user.phone_number_verified;
-      }
-
-      // Add address claims if available (address scope or profile scope)
-      if (scopes.includes('address') || scopes.includes('profile')) {
-        if (user.address) claims.address = user.address;
-      }
-
-      // Add custom claims (always include for easier Cognito mapping)
-      if (user.custom_department) claims.custom_department = user.custom_department;
-      if (user.custom_employee_id) claims.custom_employee_id = user.custom_employee_id;
-      if (user.custom_role) claims.custom_role = user.custom_role;
     }
 
     return jwt.sign(claims, keyManager.getPrivateKey(), {
@@ -140,6 +116,7 @@ export default class TokenGenerator {
     });
   }
 
+  // Extract user information from access token for /userinfo endpoint
   getUserInfo(accessToken: string): any {
     try {
       const decoded = jwt.verify(accessToken, keyManager.getPublicKey(), {
@@ -172,44 +149,17 @@ export default class TokenGenerator {
 
       if (scopes.includes('email')) {
         userInfo.email = user.email;
-        userInfo.email_verified = user.email_verified;
       }
 
       if (scopes.includes('profile')) {
-        userInfo.name = user.name;
-        userInfo.given_name = user.given_name;
-        userInfo.family_name = user.family_name;
-        userInfo.picture = user.picture;
-        userInfo.preferred_username = user.preferred_username;
-        
-        // Add additional profile fields
-        if (user.locale) userInfo.locale = user.locale;
-        if (user.zoneinfo) userInfo.zoneinfo = user.zoneinfo;
-        if (user.updated_at) userInfo.updated_at = user.updated_at;
-        if (user.birthdate) userInfo.birthdate = user.birthdate;
-        if (user.gender) userInfo.gender = user.gender;
-        if (user.website) userInfo.website = user.website;
+        userInfo.first_name = user.first_name;
+        userInfo.last_name = user.last_name;
+        userInfo.referenceId = user.referenceId;
       }
-
-      // Add phone claims if available
-      if (scopes.includes('phone') || scopes.includes('profile')) {
-        if (user.phone_number) userInfo.phone_number = user.phone_number;
-        if (user.phone_number_verified !== undefined) userInfo.phone_number_verified = user.phone_number_verified;
-      }
-
-      // Add address claims if available
-      if (scopes.includes('address') || scopes.includes('profile')) {
-        if (user.address) userInfo.address = user.address;
-      }
-
-      // Add custom claims (always include for easier Cognito mapping)
-      if (user.custom_department) userInfo.custom_department = user.custom_department;
-      if (user.custom_employee_id) userInfo.custom_employee_id = user.custom_employee_id;
-      if (user.custom_role) userInfo.custom_role = user.custom_role;
 
       return userInfo;
     } catch (error) {
-      throw new Error('Invalid access token');
+      throw new Error('Invalid or expired token');
     }
   }
 } 
