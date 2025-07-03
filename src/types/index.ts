@@ -19,6 +19,24 @@ export interface User {
   family_name: string;
   picture: string;
   preferred_username: string;
+  locale?: string;
+  zoneinfo?: string;
+  updated_at?: string;
+  phone_number?: string;
+  phone_number_verified?: boolean;
+  address?: {
+    street_address?: string;
+    locality?: string;
+    region?: string;
+    postal_code?: string;
+    country?: string;
+  };
+  birthdate?: string;
+  gender?: string;
+  website?: string;
+  custom_department?: string;
+  custom_employee_id?: string;
+  custom_role?: string;
 }
 
 // Authorization code with PKCE support
@@ -58,4 +76,22 @@ export interface IdTokenClaims {
   family_name?: string;
   picture?: string;
   preferred_username?: string;
+  locale?: string;
+  zoneinfo?: string;
+  updated_at?: string;
+  phone_number?: string;
+  phone_number_verified?: boolean;
+  address?: {
+    street_address?: string;
+    locality?: string;
+    region?: string;
+    postal_code?: string;
+    country?: string;
+  };
+  birthdate?: string;
+  gender?: string;
+  website?: string;
+  custom_department?: string;
+  custom_employee_id?: string;
+  custom_role?: string;
 } 

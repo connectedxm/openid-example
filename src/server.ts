@@ -138,12 +138,14 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     id_token_signing_alg_values_supported: ['RS256', 'HS256'],
     userinfo_signing_alg_values_supported: ['RS256', 'HS256'],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
-    scopes_supported: ['openid', 'email', 'profile'],
+    scopes_supported: ['openid', 'email', 'profile', 'phone', 'address'],
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
       'email', 'email_verified', 'name', 'given_name',
       'family_name', 'picture', 'preferred_username',
-      'locale', 'updated_at', 'zoneinfo'
+      'locale', 'updated_at', 'zoneinfo', 'phone_number', 'phone_number_verified',
+      'address', 'birthdate', 'gender', 'website',
+      'custom_department', 'custom_employee_id', 'custom_role'
     ],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
@@ -528,6 +530,8 @@ app.post('/token', (req: Request, res: Response) => {
     }
     
     console.log(`[TOKEN] ✅ User found: ${user.name} (${user.sub})`);
+    console.log(`[TOKEN] 📋 Available user data for token generation:`);
+    console.log(`[TOKEN] ${JSON.stringify(user, null, 2)}`);
 
     // Generate tokens
     console.log(`[TOKEN] Generating tokens`);
@@ -543,6 +547,19 @@ app.post('/token', (req: Request, res: Response) => {
 
     console.log(`[TOKEN] ✅ Token response generated successfully`);
     console.log(`[TOKEN] Response includes: access_token=${!!tokenResponse.access_token}, id_token=${!!tokenResponse.id_token}, refresh_token=${!!tokenResponse.refresh_token}`);
+    
+    // Log ID token contents for Cognito attribute mapping
+    if (tokenResponse.id_token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.decode(tokenResponse.id_token);
+        console.log(`[TOKEN] 🔍 ID Token Contents for Cognito Attribute Mapping:`);
+        console.log(`[TOKEN] ${JSON.stringify(decoded, null, 2)}`);
+        console.log(`[TOKEN] 📋 Available fields for Cognito mapping: ${Object.keys(decoded || {}).join(', ')}`);
+      } catch (error) {
+        console.error(`[TOKEN] ❌ Error decoding ID token for logging:`, error);
+      }
+    }
     
     res.json(tokenResponse);
     return;

@@ -8,7 +8,25 @@
     "given_name": "John",
     "family_name": "Doe",
     "picture": "https://example.com/john-doe.jpg",
-    "preferred_username": "johndoe"
+    "preferred_username": "johndoe",
+    "locale": "en-US",
+    "zoneinfo": "America/New_York",
+    "updated_at": "2024-01-15T10:30:00Z",
+    "phone_number": "+1-555-123-4567",
+    "phone_number_verified": true,
+    "address": {
+      "street_address": "123 Main St",
+      "locality": "New York",
+      "region": "NY",
+      "postal_code": "10001",
+      "country": "US"
+    },
+    "birthdate": "1990-05-15",
+    "gender": "male",
+    "website": "https://johndoe.com",
+    "custom_department": "Engineering",
+    "custom_employee_id": "EMP001",
+    "custom_role": "Senior Developer"
   },
   {
     "sub": "user-987654",
@@ -19,6 +37,24 @@
     "given_name": "Jane",
     "family_name": "Smith",
     "picture": "https://example.com/jane-smith.jpg",
-    "preferred_username": "janesmith"
+    "preferred_username": "janesmith",
+    "locale": "en-US",
+    "zoneinfo": "America/Los_Angeles",
+    "updated_at": "2024-01-10T14:20:00Z",
+    "phone_number": "+1-555-987-6543",
+    "phone_number_verified": true,
+    "address": {
+      "street_address": "456 Oak Ave",
+      "locality": "Los Angeles",
+      "region": "CA",
+      "postal_code": "90210",
+      "country": "US"
+    },
+    "birthdate": "1988-09-22",
+    "gender": "female",
+    "website": "https://janesmith.com",
+    "custom_department": "Marketing",
+    "custom_employee_id": "EMP002",
+    "custom_role": "Marketing Manager"
   }
 ] 

@@ -107,7 +107,31 @@ export default class TokenGenerator {
         claims.family_name = user.family_name;
         claims.picture = user.picture;
         claims.preferred_username = user.preferred_username;
+        
+        // Add additional profile fields
+        if (user.locale) claims.locale = user.locale;
+        if (user.zoneinfo) claims.zoneinfo = user.zoneinfo;
+        if (user.updated_at) claims.updated_at = user.updated_at;
+        if (user.birthdate) claims.birthdate = user.birthdate;
+        if (user.gender) claims.gender = user.gender;
+        if (user.website) claims.website = user.website;
       }
+
+      // Add phone claims if available (phone scope or profile scope)
+      if (scopes.includes('phone') || scopes.includes('profile')) {
+        if (user.phone_number) claims.phone_number = user.phone_number;
+        if (user.phone_number_verified !== undefined) claims.phone_number_verified = user.phone_number_verified;
+      }
+
+      // Add address claims if available (address scope or profile scope)
+      if (scopes.includes('address') || scopes.includes('profile')) {
+        if (user.address) claims.address = user.address;
+      }
+
+      // Add custom claims (always include for easier Cognito mapping)
+      if (user.custom_department) claims.custom_department = user.custom_department;
+      if (user.custom_employee_id) claims.custom_employee_id = user.custom_employee_id;
+      if (user.custom_role) claims.custom_role = user.custom_role;
     }
 
     return jwt.sign(claims, keyManager.getPrivateKey(), {
@@ -157,7 +181,31 @@ export default class TokenGenerator {
         userInfo.family_name = user.family_name;
         userInfo.picture = user.picture;
         userInfo.preferred_username = user.preferred_username;
+        
+        // Add additional profile fields
+        if (user.locale) userInfo.locale = user.locale;
+        if (user.zoneinfo) userInfo.zoneinfo = user.zoneinfo;
+        if (user.updated_at) userInfo.updated_at = user.updated_at;
+        if (user.birthdate) userInfo.birthdate = user.birthdate;
+        if (user.gender) userInfo.gender = user.gender;
+        if (user.website) userInfo.website = user.website;
       }
+
+      // Add phone claims if available
+      if (scopes.includes('phone') || scopes.includes('profile')) {
+        if (user.phone_number) userInfo.phone_number = user.phone_number;
+        if (user.phone_number_verified !== undefined) userInfo.phone_number_verified = user.phone_number_verified;
+      }
+
+      // Add address claims if available
+      if (scopes.includes('address') || scopes.includes('profile')) {
+        if (user.address) userInfo.address = user.address;
+      }
+
+      // Add custom claims (always include for easier Cognito mapping)
+      if (user.custom_department) userInfo.custom_department = user.custom_department;
+      if (user.custom_employee_id) userInfo.custom_employee_id = user.custom_employee_id;
+      if (user.custom_role) userInfo.custom_role = user.custom_role;
 
       return userInfo;
     } catch (error) {
