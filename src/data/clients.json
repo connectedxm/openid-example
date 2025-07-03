@@ -1,11 +1,11 @@
 [
+
   {
-    "client_id": "test-client-1",
-    "client_secret": "test-secret-1",
-    "client_name": "Test Client 1",
+    "client_id": "connected-staging",
+    "client_secret": "cognito-secret-123",
+    "client_name": "AWS Cognito Client",
     "redirect_uris": [
-      "http://localhost:3000/callback",
-      "https://myapp.example.com/callback"
+      "https://connected-connected-auth.auth.us-east-1.amazoncognito.com/oauth2/idpresponse"
     ],
     "allowed_scopes": ["openid", "email", "profile"],
     "grant_types": ["authorization_code"]

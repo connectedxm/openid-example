@@ -11,7 +11,7 @@ import authStore from './stores/authStore';
 import { generateAuthorizationCode, verifyCodeChallenge } from './utils/pkce';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const ISSUER = process.env.ISSUER || `http://localhost:${PORT}`;
 
 // Initialize token generator
@@ -51,17 +51,25 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     token_endpoint: `${ISSUER}/token`,
     userinfo_endpoint: `${ISSUER}/userinfo`,
     jwks_uri: `${ISSUER}/jwks`,
-    response_types_supported: ['code', 'code id_token'],
+    end_session_endpoint: `${ISSUER}/logout`,
+    response_types_supported: ['code', 'code id_token', 'id_token', 'token id_token'],
+    response_modes_supported: ['query', 'fragment', 'form_post'],
     subject_types_supported: ['public'],
     id_token_signing_alg_values_supported: ['RS256'],
+    userinfo_signing_alg_values_supported: ['RS256'],
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
     scopes_supported: ['openid', 'email', 'profile'],
-    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     claims_supported: [
-      'sub', 'email', 'email_verified', 'name', 'given_name',
+      'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
+      'email', 'email_verified', 'name', 'given_name',
       'family_name', 'picture', 'preferred_username'
     ],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
-    code_challenge_methods_supported: ['plain', 'S256']
+    code_challenge_methods_supported: ['plain', 'S256'],
+    request_parameter_supported: false,
+    request_uri_parameter_supported: false,
+    require_request_uri_registration: false,
+    claims_parameter_supported: false
   };
 
   res.json(config);
@@ -69,9 +77,19 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
 });
 
 // JWKS endpoint
-app.get('/jwks', (req: Request, res: Response) => {
-  res.json(keyManager.getJWKS());
-  return;
+app.get('/jwks', async (req: Request, res: Response) => {
+  try {
+    const jwks = await keyManager.getJWKS();
+    res.json(jwks);
+    return;
+  } catch (error) {
+    console.error('Error generating JWKS:', error);
+    res.status(500).json({
+      error: 'server_error',
+      error_description: 'Failed to generate JWKS'
+    });
+    return;
+  }
 });
 
 // Authorization endpoint - GET (display login page)
@@ -431,7 +449,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 OpenID Connect Provider running at ${ISSUER}`);
   console.log(`\n📋 Available endpoints:`);
   console.log(`   Discovery: ${ISSUER}/.well-known/openid-configuration`);

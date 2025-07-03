@@ -189,7 +189,7 @@ Update `src/data/clients.json` with your actual Cognito domain:
 
 ## Deployment
 
-### 🚀 Railway (Recommended - Easiest)
+### 🚀 Railway
 
 1. Push your code to GitHub
 2. Go to [railway.app](https://railway.app) and sign up
@@ -199,27 +199,6 @@ Update `src/data/clients.json` with your actual Cognito domain:
 
 **Cost**: $5/month or free tier with 500 hours  
 **Benefits**: Automatic HTTPS, Git-based deployments, built-in monitoring
-
-📖 **Detailed guide**: See `README-RAILWAY.md`
-
-### 🔧 Render (Alternative)
-
-1. Go to [render.com](https://render.com) and sign up
-2. Create a new "Web Service" from your GitHub repo
-3. Render auto-detects the Dockerfile and deploys!
-
-**Cost**: $7/month or free tier with 750 hours  
-**Benefits**: Free tier available, automatic SSL, simple setup
-
-📖 **Detailed guide**: See `README-RENDER.md`
-
-### 🐳 Using Docker (Local)
-
-```bash
-# Build and run with Docker
-docker build -t openid-provider .
-docker run -p 3000:3000 openid-provider
-```
 
 ### Environment Variables
 

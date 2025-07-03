@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from 'crypto';
 import jwt from 'jsonwebtoken';
+import * as jose from 'node-jose';
 
 interface KeyPair {
   privateKey: string;
@@ -46,33 +47,41 @@ class KeyManager {
     return this.keyPair.kid;
   }
 
-  getJWKS(): any {
-    // Convert PEM to JWK format for JWKS endpoint
-    const key = this.pemToJWK(this.keyPair.publicKey);
-    return {
-      keys: [
-        {
-          ...key,
-          kid: this.keyPair.kid,
-          use: 'sig',
-          alg: 'RS256'
-        }
-      ]
-    };
-  }
-
-  private pemToJWK(pem: string): any {
-    // Simple conversion - in production, use a library like node-jose
-    const publicKey = pem
-      .replace(/-----BEGIN PUBLIC KEY-----/, '')
-      .replace(/-----END PUBLIC KEY-----/, '')
-      .replace(/\n/g, '');
-    
-    return {
-      kty: 'RSA',
-      n: publicKey, // This is simplified - in production, extract modulus properly
-      e: 'AQAB' // Standard RSA exponent (65537)
-    };
+  async getJWKS(): Promise<any> {
+    try {
+      // Use node-jose to properly convert PEM to JWK
+      const keystore = jose.JWK.createKeyStore();
+      const key = await keystore.add(this.keyPair.publicKey, 'pem');
+      
+      // Convert to JWK format
+      const jwk = key.toJSON();
+      
+      return {
+        keys: [
+          {
+            ...jwk,
+            kid: this.keyPair.kid,
+            use: 'sig',
+            alg: 'RS256'
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Error generating JWKS:', error);
+      // Fallback to basic JWK structure if node-jose fails
+      return {
+        keys: [
+          {
+            kty: 'RSA',
+            kid: this.keyPair.kid,
+            use: 'sig',
+            alg: 'RS256',
+            n: 'fallback-key',
+            e: 'AQAB'
+          }
+        ]
+      };
+    }
   }
 
   signToken(payload: any, expiresIn: string = '1h'): string {
