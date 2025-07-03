@@ -47,11 +47,11 @@ function parseScopes(scopeString: string): string[] {
 app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
   const config = {
     issuer: ISSUER,
-    authorization_endpoint: `${ISSUER}/authorize`,
-    token_endpoint: `${ISSUER}/token`,
-    userinfo_endpoint: `${ISSUER}/userinfo`,
-    jwks_uri: `${ISSUER}/jwks`,
-    end_session_endpoint: `${ISSUER}/logout`,
+    authorization_endpoint: `https://${ISSUER}/authorize`,
+    token_endpoint: `https://${ISSUER}/token`,
+    userinfo_endpoint: `https://${ISSUER}/userinfo`,
+    jwks_uri: `https://${ISSUER}/jwks`,
+    end_session_endpoint: `https://${ISSUER}/logout`,
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
     subject_types_supported: ['public'],
@@ -194,7 +194,7 @@ app.post('/authorize', (req: Request, res: Response) => {
   const user = authenticateUser(email, password);
   if (!user) {
     // Redirect back to login with error
-    const loginUrl = new URL(`${ISSUER}/authorize`);
+    const loginUrl = new URL(`https://${ISSUER}/authorize`);
     Object.entries(req.query).forEach(([key, value]) => {
       if (value) loginUrl.searchParams.set(key, value as string);
     });
@@ -440,14 +440,14 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 OpenID Connect Provider running at ${ISSUER}`);
+  console.log(`🚀 OpenID Connect Provider running at https://${ISSUER}`);
   console.log(`\n📋 Available endpoints:`);
-  console.log(`   Discovery: ${ISSUER}/.well-known/openid-configuration`);
-  console.log(`   JWKS:      ${ISSUER}/jwks`);
-  console.log(`   Authorize: ${ISSUER}/authorize`);
-  console.log(`   Token:     ${ISSUER}/token`);
-  console.log(`   UserInfo:  ${ISSUER}/userinfo`);
-  console.log(`   Health:    ${ISSUER}/health`);
+  console.log(`   Discovery: https://${ISSUER}/.well-known/openid-configuration`);
+  console.log(`   JWKS:      https://${ISSUER}/jwks`);
+  console.log(`   Authorize: https://${ISSUER}/authorize`);
+  console.log(`   Token:     https://${ISSUER}/token`);
+  console.log(`   UserInfo:  https://${ISSUER}/userinfo`);
+  console.log(`   Health:    https://${ISSUER}/health`);
   console.log(`\n🔐 Test Clients:`);
   console.log(`   Client ID: test-client-1`);
   console.log(`   Client Secret: test-secret-1`);
