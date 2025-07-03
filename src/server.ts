@@ -12,7 +12,7 @@ import { generateAuthorizationCode, verifyCodeChallenge } from './utils/pkce';
 
 const app = express();
 
-const PROTOCOL = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+const PROTOCOL = process.env.RAILWAY_PUBLIC_DOMAIN ? 'https' : 'http';
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ISSUER = process.env.RAILWAY_PUBLIC_DOMAIN || `localhost:${PORT}`;
 
