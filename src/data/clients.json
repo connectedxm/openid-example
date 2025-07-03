@@ -2,10 +2,11 @@
 
   {
     "client_id": "connected-staging",
-    "client_secret": "cognito-secret-123",
+    "client_secret": "connected-staging-secret-123",
     "client_name": "AWS Cognito Client",
     "redirect_uris": [
-      "https://connected-connected-auth.auth.us-east-1.amazoncognito.com/oauth2/idpresponse"
+      "https://connected-connected-auth.auth.us-east-1.amazoncognito.com/oauth2/idpresponse",
+      "https://oauth.tools/callback/code"
     ],
     "allowed_scopes": ["openid", "email", "profile"],
     "grant_types": ["authorization_code"]

@@ -44,119 +44,130 @@ curl http://localhost:3000/health
 curl http://localhost:3000/.well-known/openid-configuration
 ```
 
-## Configuration
+## Testing with OAuth.tools
 
-### Test Users
+[OAuth.tools](https://oauth.tools/) is an excellent online tool for testing OAuth 2.0 and OpenID Connect flows. Here's how to use it to test your OIDC server:
 
-Located in `src/data/users.json`:
+### Step 1: Configure OAuth.tools
 
-| Email | Password | Name |
-|-------|----------|------|
-| john.doe@example.com | password123 | John Doe |
-| jane.smith@example.com | password456 | Jane Smith |
+1. Go to [https://oauth.tools/](https://oauth.tools/)
+2. Click on **"Authorization Code Flow"**
+3. Fill in the following configuration:
 
-### Test Clients
+**Basic Configuration:**
+- **Authorization Endpoint**: `http://localhost:3000/authorize`
+- **Token Endpoint**: `http://localhost:3000/token`
+- **Client ID**: `connected-staging`
+- **Client Secret**: `cognito-secret-123`
+- **Redirect URI**: `https://oauth.tools/callback/code`
+- **Scope**: `openid email profile`
 
-Located in `src/data/clients.json`:
+**Advanced Configuration:**
+- **PKCE**: Enable PKCE with **S256** method
+- **Response Type**: `code`
+- **Response Mode**: `query`
 
-**Generic Test Client:**
-- Client ID: `test-client-1`
-- Client Secret: `test-secret-1`
-- Redirect URIs: `http://localhost:3000/callback`, `https://myapp.example.com/callback`
+### Step 2: Update Client Configuration
 
-**AWS Cognito Client:**
-- Client ID: `cognito-client`
-- Client Secret: `cognito-secret-123`
-- Redirect URI: `https://your-cognito-domain.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`
+Before testing, you need to add OAuth.tools callback URL to your client configuration:
 
-## Authorization Code Flow
-
-### 1. Authorization Request
-
-Direct the user to:
-```
-http://localhost:3000/authorize?
-  client_id=test-client-1&
-  redirect_uri=http://localhost:3000/callback&
-  response_type=code&
-  scope=openid email profile&
-  state=xyz&
-  nonce=abc
-```
-
-With PKCE:
-```
-http://localhost:3000/authorize?
-  client_id=test-client-1&
-  redirect_uri=http://localhost:3000/callback&
-  response_type=code&
-  scope=openid email profile&
-  state=xyz&
-  nonce=abc&
-  code_challenge=XXXXXXXXXX&
-  code_challenge_method=S256
+```json
+{
+  "client_id": "connected-staging",
+  "client_secret": "cognito-secret-123",
+  "client_name": "AWS Cognito Client",
+  "redirect_uris": [
+    "https://connected-connected-auth.auth.us-east-1.amazoncognito.com/oauth2/idpresponse",
+    "https://oauth.tools/callback/code"
+  ],
+  "allowed_scopes": ["openid", "email", "profile"],
+  "grant_types": ["authorization_code"]
+}
 ```
 
-### 2. User Login
+### Step 3: Test the Authorization Flow
 
-The user will see a login page and can authenticate with one of the test users.
+1. **Start Authorization**: Click **"Start Authorization"** in OAuth.tools
+2. **Login**: You'll be redirected to your login page. Use these test credentials:
+   - **Email**: `john.doe@example.com`
+   - **Password**: `password123`
+3. **Get Authorization Code**: After login, you'll be redirected back to OAuth.tools with an authorization code
+4. **Exchange for Tokens**: OAuth.tools will automatically exchange the code for tokens
+5. **View Results**: You'll see the ID token, access token, and refresh token
 
-### 3. Authorization Code
+### Step 4: Test Token Validation
 
-After successful login, the user is redirected to:
-```
-http://localhost:3000/callback?code=AUTH_CODE&state=xyz
-```
+1. **Copy the Access Token** from OAuth.tools
+2. **Test UserInfo Endpoint**:
+   ```bash
+   curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+        http://localhost:3000/userinfo
+   ```
+3. **Decode ID Token**: Use [jwt.io](https://jwt.io) to decode and verify the ID token
 
-### 4. Token Exchange
+### Step 5: Test Discovery Endpoint
 
-Exchange the authorization code for tokens:
+1. **Get Discovery Document**:
+   ```bash
+   curl http://localhost:3000/.well-known/openid-configuration | jq
+   ```
+
+2. **Verify JWKS Endpoint**:
+   ```bash
+   curl http://localhost:3000/jwks | jq
+   ```
+
+## Configuration for Production Testing
+
+### Using ngrok for Public Testing
+
+If you want to test with a public URL (required for AWS Cognito integration):
+
+1. **Install ngrok**: [https://ngrok.com/](https://ngrok.com/)
+2. **Start your server**: `npm run dev`
+3. **Expose with ngrok**: `ngrok http 3000`
+4. **Update OAuth.tools configuration** with your ngrok URL:
+   - **Authorization Endpoint**: `https://your-ngrok-url.ngrok.io/authorize`
+   - **Token Endpoint**: `https://your-ngrok-url.ngrok.io/token`
+
+### Environment Variables
+
+Set these environment variables for production:
 
 ```bash
-curl -X POST http://localhost:3000/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "code=AUTH_CODE" \
-  -d "redirect_uri=http://localhost:3000/callback" \
-  -d "client_id=test-client-1" \
-  -d "client_secret=test-secret-1"
-```
-
-With PKCE:
-```bash
-curl -X POST http://localhost:3000/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "code=AUTH_CODE" \
-  -d "redirect_uri=http://localhost:3000/callback" \
-  -d "client_id=test-client-1" \
-  -d "client_secret=test-secret-1" \
-  -d "code_verifier=YOUR_CODE_VERIFIER"
-```
-
-### 5. Get User Info
-
-```bash
-curl http://localhost:3000/userinfo \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+export ISSUER=https://your-domain.com
+export NODE_ENV=production
+export PORT=3000
 ```
 
 ## AWS Cognito Integration
 
-### 1. Set up OIDC Provider in Cognito
+### Step 1: Set up OIDC Provider in Cognito
 
 1. Go to your Cognito User Pool in AWS Console
-2. Navigate to "Sign-in experience" → "Federated identity provider sign-in"
-3. Click "Add identity provider" → "OpenID Connect"
+2. Navigate to **"Sign-in experience"** → **"Federated identity provider sign-in"**
+3. Click **"Add identity provider"** → **"OpenID Connect"**
 4. Configure:
    - **Provider name**: `TestOIDC` (or your choice)
-   - **Client ID**: `cognito-client`
+   - **Client ID**: `connected-staging`
    - **Client secret**: `cognito-secret-123`
    - **Authorize scope**: `openid email profile`
-   - **Issuer URL**: `http://localhost:3000` (or your deployed URL)
+   - **Issuer URL**: `https://your-domain.com` (your server URL)
    - **Discovery URL**: Will auto-populate from issuer
 
-### 2. Attribute Mapping
+### Step 2: Test with OAuth.tools and Cognito
+
+1. **Test Direct OIDC Flow** (OAuth.tools → Your Server):
+   ```
+   https://oauth.tools/ → https://your-server.com/authorize → Login → Tokens
+   ```
+
+2. **Test Cognito Integration** (OAuth.tools → Cognito → Your Server):
+   ```
+   https://oauth.tools/ → Cognito → Your Server → Login → Cognito → Tokens
+   ```
+
+### Step 3: Attribute Mapping
 
 Map OIDC claims to Cognito attributes:
 - `sub` → Username
@@ -167,25 +178,85 @@ Map OIDC claims to Cognito attributes:
 - `name` → Name
 - `picture` → Picture
 
-### 3. Enable for App Client
+## Test Users
 
-1. Go to "App integration" → "App clients"
-2. Select your app client
-3. Edit "Hosted UI settings"
-4. Under "Identity providers", enable your OIDC provider
-5. Save changes
+Located in `src/data/users.json`:
 
-### 4. Update Redirect URI
+| Email | Password | Name |
+|-------|----------|------|
+| john.doe@example.com | password123 | John Doe |
+| jane.smith@example.com | password456 | Jane Smith |
 
-Update `src/data/clients.json` with your actual Cognito domain:
-```json
-{
-  "client_id": "cognito-client",
-  "redirect_uris": [
-    "https://YOUR-DOMAIN.auth.REGION.amazoncognito.com/oauth2/idpresponse"
-  ]
-}
+## Test Clients
+
+Located in `src/data/clients.json`:
+
+**AWS Cognito Client:**
+- Client ID: `connected-staging`
+- Client Secret: `cognito-secret-123`
+- Redirect URI: `https://connected-connected-auth.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`
+
+## Troubleshooting with OAuth.tools
+
+### Common Issues and Solutions
+
+#### 1. "Invalid redirect_uri" Error
+**Problem**: OAuth.tools callback URL not registered
+**Solution**: Add `https://oauth.tools/callback/code` to your client's `redirect_uris`
+
+#### 2. "Invalid client" Error
+**Problem**: Client ID/secret mismatch
+**Solution**: Verify `connected-staging` and `cognito-secret-123` match exactly
+
+#### 3. "Unsupported response type" Error
+**Problem**: Wrong response type in OAuth.tools
+**Solution**: Ensure OAuth.tools is set to `response_type=code`
+
+#### 4. PKCE Errors
+**Problem**: PKCE configuration mismatch
+**Solution**: Enable PKCE with S256 method in OAuth.tools
+
+#### 5. Token Validation Fails
+**Problem**: JWT signature verification fails
+**Solution**: Check JWKS endpoint is accessible at `/jwks`
+
+### Testing Checklist
+
+- [ ] Discovery endpoint returns valid configuration
+- [ ] JWKS endpoint returns valid keys
+- [ ] Authorization endpoint accepts valid requests
+- [ ] Login page displays correctly
+- [ ] Token endpoint returns valid tokens
+- [ ] UserInfo endpoint returns user data
+- [ ] Tokens are properly signed and verifiable
+- [ ] PKCE flow works correctly
+- [ ] All scopes are supported
+
+## Advanced Testing Scenarios
+
+### 1. Test Error Handling
+
+**Invalid Client ID**:
+```bash
+curl "http://localhost:3000/authorize?client_id=invalid&redirect_uri=https://oauth.tools/callback/code&response_type=code"
 ```
+
+**Invalid Redirect URI**:
+```bash
+curl "http://localhost:3000/authorize?client_id=connected-staging&redirect_uri=https://evil.com&response_type=code"
+```
+
+### 2. Test Token Expiration
+
+1. Generate tokens with OAuth.tools
+2. Wait for expiration (check `exp` claim in JWT)
+3. Test expired token with UserInfo endpoint
+
+### 3. Test PKCE Flow
+
+1. Generate code verifier and challenge
+2. Use OAuth.tools PKCE feature
+3. Verify code challenge validation
 
 ## Deployment
 
@@ -195,16 +266,26 @@ Update `src/data/clients.json` with your actual Cognito domain:
 2. Go to [railway.app](https://railway.app) and sign up
 3. Click "Deploy from GitHub repo"
 4. Select this repository
-5. Railway auto-detects the Dockerfile and deploys!
+5. Set environment variable: `ISSUER=https://your-railway-domain.railway.app`
 
-**Cost**: $5/month or free tier with 500 hours  
-**Benefits**: Automatic HTTPS, Git-based deployments, built-in monitoring
+### 🌐 Render
 
-### Environment Variables
+1. Connect your GitHub repository
+2. Set build command: `npm run build`
+3. Set start command: `npm start`
+4. Set environment variable: `ISSUER=https://your-app.onrender.com`
 
-- `PORT` - Server port (default: 3000)
-- `ISSUER` - Issuer URL (default: `http://localhost:3000`)
-- `NODE_ENV` - Environment (development/production)
+## Security Considerations
+
+⚠️ **This is a test implementation** and should not be used in production without additional security measures:
+
+- Use proper HTTPS certificates
+- Implement rate limiting
+- Use a persistent database for sessions and codes
+- Add proper CSRF protection
+- Implement secure password policies
+- Add multi-factor authentication
+- Use production-grade key management
 
 ## Project Structure
 
@@ -225,33 +306,6 @@ src/
 │   └── login.html      # Login page
 └── server.ts           # Main server application
 ```
-
-## Security Considerations
-
-⚠️ **This is a test implementation** and should not be used in production. For production use:
-
-- Use proper HTTPS certificates
-- Implement rate limiting
-- Use a persistent database for sessions and codes
-- Add proper CSRF protection
-- Implement secure password policies
-- Add multi-factor authentication
-- Use production-grade key management
-
-## Troubleshooting
-
-### "Invalid client" error
-- Ensure the client_id and client_secret match those in `clients.json`
-- Check that the redirect_uri exactly matches the registered URI
-
-### "Invalid grant" error
-- Authorization codes expire after 10 minutes
-- Codes are single-use only
-- Ensure PKCE verifier matches the challenge
-
-### Token validation fails
-- Check that the JWKS endpoint is accessible
-- Verify the issuer URL matches in all configurations
 
 ## License
 

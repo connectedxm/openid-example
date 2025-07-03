@@ -12,7 +12,7 @@ import { generateAuthorizationCode, verifyCodeChallenge } from './utils/pkce';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const ISSUER = process.env.ISSUER || `http://localhost:${PORT}`;
+const ISSUER = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
 
 // Initialize token generator
 const tokenGenerator = new TokenGenerator(ISSUER);
@@ -52,20 +52,20 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     userinfo_endpoint: `${ISSUER}/userinfo`,
     jwks_uri: `${ISSUER}/jwks`,
     end_session_endpoint: `${ISSUER}/logout`,
-    response_types_supported: ['code', 'code id_token', 'id_token', 'token id_token'],
-    response_modes_supported: ['query', 'fragment', 'form_post'],
+    response_types_supported: ['code'],
+    response_modes_supported: ['query'],
     subject_types_supported: ['public'],
     id_token_signing_alg_values_supported: ['RS256'],
     userinfo_signing_alg_values_supported: ['RS256'],
-    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+    token_endpoint_auth_methods_supported: ['client_secret_post'],
     scopes_supported: ['openid', 'email', 'profile'],
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
       'email', 'email_verified', 'name', 'given_name',
       'family_name', 'picture', 'preferred_username'
     ],
-    grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
-    code_challenge_methods_supported: ['plain', 'S256'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
     request_parameter_supported: false,
     request_uri_parameter_supported: false,
     require_request_uri_registration: false,
@@ -134,10 +134,10 @@ app.get('/authorize', (req: Request, res: Response) => {
   }
 
   // Validate response type
-  if (response_type !== 'code' && response_type !== 'code id_token') {
+  if (response_type !== 'code') {
     res.status(400).json({
       error: 'unsupported_response_type',
-      error_description: 'Only code flow is supported'
+      error_description: 'Only authorization code flow is supported'
     });
     return;
   }
@@ -159,7 +159,7 @@ app.get('/authorize', (req: Request, res: Response) => {
         nonce: nonce as string,
         state: state as string,
         codeChallenge: code_challenge as string,
-        codeChallengeMethod: code_challenge_method as string || 'S256'
+        codeChallengeMethod: code_challenge_method as string === 'S256' ? 'S256' : 'S256'
       });
 
       const redirectUrl = new URL(redirect_uri as string);
@@ -225,7 +225,7 @@ app.post('/authorize', (req: Request, res: Response) => {
     nonce: nonce as string,
     state: state as string,
     codeChallenge: code_challenge as string,
-    codeChallengeMethod: code_challenge_method as string || 'S256'
+    codeChallengeMethod: code_challenge_method as string === 'S256' ? 'S256' : 'S256'
   });
 
   // Redirect back to client with auth code
@@ -249,18 +249,17 @@ app.post('/token', (req: Request, res: Response) => {
     scope 
   } = req.body;
 
-  // Extract client credentials from Basic Auth if present
-  let clientId = client_id;
-  let clientSecret = client_secret;
+  // Only support client_secret_post method as required by AWS Cognito
+  const clientId = client_id;
+  const clientSecret = client_secret;
 
-  if (req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Basic ')) {
-      const credentials = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
-      const [basicClientId, basicClientSecret] = credentials.split(':');
-      clientId = basicClientId;
-      clientSecret = basicClientSecret;
-    }
+  // AWS Cognito requires client_secret_post, not client_secret_basic
+  if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
+    res.status(400).json({
+      error: 'invalid_client',
+      error_description: 'Only client_secret_post authentication method is supported'
+    });
+    return;
   }
 
   // Handle authorization code grant
@@ -350,22 +349,13 @@ app.post('/token', (req: Request, res: Response) => {
     return;
   }
 
-  // Handle client credentials grant
-  if (grant_type === 'client_credentials') {
-    const client = authenticateClient(clientId, clientSecret);
-    if (!client) {
-      res.status(401).json({
-        error: 'invalid_client',
-        error_description: 'Client authentication failed'
-      });
-      return;
-    }
-
-    const requestedScopes = parseScopes(scope || 'openid');
-    const validScopes = requestedScopes.filter(s => client.allowed_scopes.includes(s));
-
-    const tokenResponse = tokenGenerator.generateTokenResponse(clientId, validScopes);
-    res.json(tokenResponse);
+  // Handle refresh token grant
+  if (grant_type === 'refresh_token') {
+    // TODO: Implement refresh token grant if needed
+    res.status(400).json({
+      error: 'unsupported_grant_type',
+      error_description: 'Refresh token grant not implemented'
+    });
     return;
   }
 
