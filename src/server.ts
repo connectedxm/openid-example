@@ -15,9 +15,15 @@ const app = express();
 const PROTOCOL = process.env.RAILWAY_PUBLIC_DOMAIN ? 'https' : 'http';
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ISSUER = process.env.RAILWAY_PUBLIC_DOMAIN || `localhost:${PORT}`;
+const FULL_ISSUER = `${PROTOCOL}://${ISSUER}`;
+
+console.log(`[CONFIG] RAILWAY_PUBLIC_DOMAIN: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'not set'}`);
+console.log(`[CONFIG] PROTOCOL: ${PROTOCOL}`);
+console.log(`[CONFIG] ISSUER: ${ISSUER}`);
+console.log(`[CONFIG] FULL_ISSUER: ${FULL_ISSUER}`);
 
 // Initialize token generator
-const tokenGenerator = new TokenGenerator(ISSUER);
+const tokenGenerator = new TokenGenerator(FULL_ISSUER);
 
 // Middleware
 app.use(cors());
@@ -120,23 +126,24 @@ function parseScopes(scopeString: string): string[] {
 app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
   
   const config = {
-    issuer: `${PROTOCOL}://${ISSUER}`,
-    authorization_endpoint: `${PROTOCOL}://${ISSUER}/authorize`,
-    token_endpoint: `${PROTOCOL}://${ISSUER}/token`,
-    userinfo_endpoint: `${PROTOCOL}://${ISSUER}/userinfo`,
-    jwks_uri: `${PROTOCOL}://${ISSUER}/jwks`,
-    end_session_endpoint: `${PROTOCOL}://${ISSUER}/logout`,
+    issuer: FULL_ISSUER,
+    authorization_endpoint: `${FULL_ISSUER}/authorize`,
+    token_endpoint: `${FULL_ISSUER}/token`,
+    userinfo_endpoint: `${FULL_ISSUER}/userinfo`,
+    jwks_uri: `${FULL_ISSUER}/jwks`,
+    end_session_endpoint: `${FULL_ISSUER}/logout`,
     response_types_supported: ['code'],
-    response_modes_supported: ['query'],
+    response_modes_supported: ['query', 'fragment', 'form_post'],
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['RS256'],
-    userinfo_signing_alg_values_supported: ['RS256'],
-    token_endpoint_auth_methods_supported: ['client_secret_post'],
+    id_token_signing_alg_values_supported: ['RS256', 'HS256'],
+    userinfo_signing_alg_values_supported: ['RS256', 'HS256'],
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
     scopes_supported: ['openid', 'email', 'profile'],
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
       'email', 'email_verified', 'name', 'given_name',
-      'family_name', 'picture', 'preferred_username'
+      'family_name', 'picture', 'preferred_username',
+      'locale', 'updated_at', 'zoneinfo'
     ],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
@@ -306,7 +313,7 @@ app.post('/authorize', (req: Request, res: Response) => {
     console.error(`[LOGIN] ❌ Login failed for: ${email}`);
     
     // Redirect back to login with error
-    const loginUrl = new URL(`${PROTOCOL}://${ISSUER}/authorize`);
+    const loginUrl = new URL(`${FULL_ISSUER}/authorize`);
     Object.entries(req.query).forEach(([key, value]) => {
       if (value) loginUrl.searchParams.set(key, value as string);
     });
@@ -379,9 +386,30 @@ app.post('/token', (req: Request, res: Response) => {
   console.log(`[TOKEN] Code verifier provided: ${code_verifier ? 'YES' : 'NO'}`);
   console.log(`[TOKEN] Scope: ${scope}`);
 
-  // Only support client_secret_post method as required by AWS Cognito
-  const clientId = client_id;
-  const clientSecret = client_secret;
+  // Support both client_secret_post and client_secret_basic methods
+  let clientId = client_id;
+  let clientSecret = client_secret;
+
+  // Handle client_secret_basic authentication
+  if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
+    console.log(`[TOKEN] Using client_secret_basic authentication`);
+    try {
+      const credentials = Buffer.from(req.headers.authorization.slice(6), 'base64').toString('utf-8');
+      const [basicClientId, basicClientSecret] = credentials.split(':');
+      clientId = basicClientId;
+      clientSecret = basicClientSecret;
+      console.log(`[TOKEN] Extracted client ID from Basic auth: ${clientId}`);
+    } catch (error) {
+      console.error(`[TOKEN] ❌ Invalid Basic authentication header`);
+      res.status(400).json({
+        error: 'invalid_client',
+        error_description: 'Invalid Basic authentication header'
+      });
+      return;
+    }
+  } else {
+    console.log(`[TOKEN] Using client_secret_post authentication`);
+  }
 
   // Validate client credentials are provided
   if (!clientId) {
@@ -389,16 +417,6 @@ app.post('/token', (req: Request, res: Response) => {
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'client_id is required'
-    });
-    return;
-  }
-
-  // AWS Cognito requires client_secret_post, not client_secret_basic
-  if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
-    console.error(`[TOKEN] ❌ Basic authentication not supported`);
-    res.status(400).json({
-      error: 'invalid_client',
-      error_description: 'Only client_secret_post authentication method is supported'
     });
     return;
   }
@@ -612,7 +630,7 @@ app.get('/logout', (req: Request, res: Response) => {
 app.get('/health', (req: Request, res: Response) => {
   console.log(`[HEALTH] Health check requested`);
   
-  const baseUrl = `${PROTOCOL}://${ISSUER}`;
+  const baseUrl = FULL_ISSUER;
   
   res.json({ 
     status: 'ok', 
@@ -652,7 +670,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  const baseUrl = `${PROTOCOL}://${ISSUER}`;
+  const baseUrl = FULL_ISSUER;
   
   console.log(`
 ╔════════════════════════════════════════════════════════════════════════════════════════╗
