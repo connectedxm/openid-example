@@ -38,8 +38,8 @@ function authenticateClient(clientId: string, clientSecret?: string): Client | u
   const client = clients.find((c: Client) => c.client_id === clientId);
   if (!client) return undefined;
   
-  // For public clients or when secret not required
-  if (!clientSecret) return client;
+  // Require client secret for all clients
+  if (!clientSecret) return undefined;
   
   // Verify secret for confidential clients
   return client.client_secret === clientSecret ? client : undefined;
@@ -65,7 +65,7 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     response_types_supported: ['code'],
     subject_types_supported: ['public'],
     id_token_signing_alg_values_supported: ['RS256'],
-    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     scopes_supported: ['openid', 'email', 'profile'],
     claims_supported: ['sub', 'email', 'first_name', 'last_name', 'referenceId'],
     grant_types_supported: ['authorization_code']

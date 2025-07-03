@@ -130,8 +130,9 @@ Tells clients where to find all OAuth endpoints and what features are supported.
 - **Server-side storage** - sessions stored in memory
 
 ### **Client Authentication**
-- **Client credentials** - ID and secret for confidential clients
-- **Multiple methods** - POST body or HTTP Basic authentication
+- **Client credentials required** - All clients must provide ID and secret
+- **Multiple methods** - POST body or HTTP Basic authentication  
+- **Confidential clients only** - No public client support
 - **Redirect URI validation** - prevents authorization code theft
 
 ## User Data Structure
