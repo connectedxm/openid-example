@@ -169,6 +169,61 @@ app.get('/authorize', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '..', 'src', 'views', 'login.html'));
 });
 
+// Authorization endpoint - POST (handle login)
+// Processes user login and generates authorization code
+app.post('/login', (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  const {
+    client_id,
+    redirect_uri,
+    scope,
+    state,
+    nonce
+  } = req.query;
+
+  // Authenticate user
+  const user = authenticateUser(email, password);
+  if (!user) {
+    // Redirect back to login with error
+    const loginUrl = new URL(`${FULL_ISSUER}/authorize`);
+    Object.entries(req.query).forEach(([key, value]) => {
+      if (value) loginUrl.searchParams.set(key, value as string);
+    });
+    loginUrl.searchParams.set('error', 'invalid_credentials');
+    res.redirect(loginUrl.toString());
+    return;
+  }
+
+  // Create session
+  const sessionId = authStore.createSession(user.sub);
+  res.cookie('session', sessionId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 1000 // 1 hour
+  });
+
+  // Generate authorization code
+  const authCode = crypto.randomBytes(32).toString('hex');
+  authStore.saveAuthCode({
+    code: authCode,
+    clientId: client_id as string,
+    userId: user.sub,
+    redirectUri: redirect_uri as string,
+    scope: scope as string || 'openid',
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+    nonce: nonce as string,
+    state: state as string
+  });
+
+  // Redirect back to client with authorization code
+  const redirectUrl = new URL(redirect_uri as string);
+  redirectUrl.searchParams.set('code', authCode);
+  if (state) redirectUrl.searchParams.set('state', state as string);
+
+  res.redirect(redirectUrl.toString());
+});
+
 // Token endpoint
 // Exchanges authorization code for access token and ID token
 app.post('/token', (req: Request, res: Response) => {
@@ -213,7 +268,7 @@ app.post('/token', (req: Request, res: Response) => {
     if (!code || !redirect_uri) {
       res.status(400).json({
         error: 'invalid_request',
-        error_description: 'Missing required parameters'
+        error_description: 'Missing required parameters, code and redirect_uri are required'
       });
       return;
     }

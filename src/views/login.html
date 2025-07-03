@@ -132,7 +132,7 @@
             }
         </script>
 
-        <form method="POST">
+        <form method="POST" action="/login">
             <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required autocomplete="email">
@@ -168,7 +168,7 @@
             
             // Add current parameters to form action
             if (currentParams.toString()) {
-                form.action = '?' + currentParams.toString();
+                form.action = '/login?' + currentParams.toString();
             }
         });
     </script>
