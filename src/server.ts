@@ -172,7 +172,7 @@ app.get('/authorize', (req: Request, res: Response) => {
   }
 
   // No session, show login page
-  res.sendFile(path.join(__dirname, 'views', 'login.html'));
+  res.sendFile(path.join(__dirname, '..', 'src', 'views', 'login.html'));
   return;
 });
 
