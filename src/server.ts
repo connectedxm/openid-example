@@ -46,7 +46,7 @@ function parseScopes(scopeString: string): string[] {
 // Discovery endpoint
 app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
   const config = {
-    issuer: ISSUER,
+    issuer: `https://${ISSUER}`,
     authorization_endpoint: `https://${ISSUER}/authorize`,
     token_endpoint: `https://${ISSUER}/token`,
     userinfo_endpoint: `https://${ISSUER}/userinfo`,
