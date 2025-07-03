@@ -118,7 +118,6 @@ function parseScopes(scopeString: string): string[] {
 
 // Discovery endpoint
 app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
-  console.log(`[DISCOVERY] OpenID configuration requested`);
   
   const config = {
     issuer: `${PROTOCOL}://${ISSUER}`,
@@ -147,7 +146,6 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     claims_parameter_supported: false
   };
 
-  console.log(`[DISCOVERY] ✅ Returning OpenID configuration`);
   res.json(config);
   return;
 });
