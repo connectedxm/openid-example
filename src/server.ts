@@ -140,11 +140,19 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
     scopes_supported: ['openid', 'email', 'profile', 'phone', 'address'],
     claims_supported: [
+      // Standard JWT claims
       'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
-      'email', 'email_verified', 'name', 'given_name',
-      'family_name', 'picture', 'preferred_username',
-      'locale', 'updated_at', 'zoneinfo', 'phone_number', 'phone_number_verified',
-      'address', 'birthdate', 'gender', 'website',
+      // Email scope claims
+      'email', 'email_verified',
+      // Profile scope claims
+      'name', 'given_name', 'family_name', 'picture', 'preferred_username',
+      'locale', 'updated_at', 'zoneinfo', 'birthdate', 'gender', 'website',
+      // Phone scope claims
+      'phone_number', 'phone_number_verified',
+      // Address scope claims
+      'address', 'address.street_address', 'address.locality', 'address.region',
+      'address.postal_code', 'address.country',
+      // Custom claims for enterprise use
       'custom_department', 'custom_employee_id', 'custom_role'
     ],
     grant_types_supported: ['authorization_code', 'refresh_token'],
@@ -152,7 +160,21 @@ app.get('/.well-known/openid-configuration', (req: Request, res: Response) => {
     request_parameter_supported: false,
     request_uri_parameter_supported: false,
     require_request_uri_registration: false,
-    claims_parameter_supported: false
+    claims_parameter_supported: false,
+    // Additional metadata for better client compatibility
+    display_values_supported: ['page'],
+    claim_types_supported: ['normal'],
+    service_documentation: `${FULL_ISSUER}/docs`,
+    ui_locales_supported: ['en-US', 'en'],
+    claims_locales_supported: ['en-US', 'en'],
+    // Indicate which scopes provide which claims
+    scope_to_claims_mapping: {
+      'openid': ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce'],
+      'email': ['email', 'email_verified'],
+      'profile': ['name', 'given_name', 'family_name', 'picture', 'preferred_username', 'locale', 'updated_at', 'zoneinfo', 'birthdate', 'gender', 'website'],
+      'phone': ['phone_number', 'phone_number_verified'],
+      'address': ['address']
+    }
   };
 
   res.json(config);
@@ -643,6 +665,112 @@ app.get('/logout', (req: Request, res: Response) => {
   }
 });
 
+// Claims mapping endpoint for Cognito administrators
+app.get('/claims-info', (req: Request, res: Response) => {
+  console.log(`[CLAIMS_INFO] Claims information requested`);
+  
+  const claimsInfo = {
+    provider: 'OpenID Connect Test Provider',
+    issuer: FULL_ISSUER,
+    claims_available: {
+      standard_claims: {
+        'sub': { description: 'Subject identifier (unique user ID)', always_present: true, example: 'user-123456' },
+        'email': { description: 'Email address', scope: 'email', example: 'john.doe@example.com' },
+        'email_verified': { description: 'Email verification status', scope: 'email', example: true },
+        'name': { description: 'Full name', scope: 'profile', example: 'John Doe' },
+        'given_name': { description: 'First name', scope: 'profile', example: 'John' },
+        'family_name': { description: 'Last name', scope: 'profile', example: 'Doe' },
+        'picture': { description: 'Profile picture URL', scope: 'profile', example: 'https://example.com/photo.jpg' },
+        'preferred_username': { description: 'Username', scope: 'profile', example: 'johndoe' },
+        'locale': { description: 'Locale/language preference', scope: 'profile', example: 'en-US' },
+        'zoneinfo': { description: 'Timezone', scope: 'profile', example: 'America/New_York' },
+        'updated_at': { description: 'Last profile update timestamp', scope: 'profile', example: '2024-01-15T10:30:00Z' },
+        'birthdate': { description: 'Date of birth', scope: 'profile', example: '1990-05-15' },
+        'gender': { description: 'Gender', scope: 'profile', example: 'male' },
+        'website': { description: 'Personal website URL', scope: 'profile', example: 'https://johndoe.com' },
+        'phone_number': { description: 'Phone number', scope: 'phone', example: '+1-555-123-4567' },
+        'phone_number_verified': { description: 'Phone verification status', scope: 'phone', example: true },
+        'address': { description: 'Full address object', scope: 'address', example: { street_address: '123 Main St', locality: 'New York', region: 'NY', postal_code: '10001', country: 'US' } }
+      },
+      custom_claims: {
+        'custom_department': { description: 'Department/Division', always_present: true, example: 'Engineering', cognito_mapping: 'custom:department' },
+        'custom_employee_id': { description: 'Employee ID', always_present: true, example: 'EMP001', cognito_mapping: 'custom:employee_id' },
+        'custom_role': { description: 'Job role/title', always_present: true, example: 'Senior Developer', cognito_mapping: 'custom:role' }
+      }
+    },
+    cognito_mapping_suggestions: {
+      'Standard Attributes': {
+        'email': 'email',
+        'given_name': 'given_name',
+        'family_name': 'family_name',
+        'name': 'name',
+        'picture': 'picture',
+        'preferred_username': 'preferred_username',
+        'locale': 'locale',
+        'zoneinfo': 'zoneinfo',
+        'updated_at': 'updated_at',
+        'birthdate': 'birthdate',
+        'gender': 'gender',
+        'website': 'website',
+        'phone_number': 'phone_number',
+        'phone_number_verified': 'phone_number_verified'
+      },
+      'Custom Attributes': {
+        'custom_department': 'custom:department',
+        'custom_employee_id': 'custom:employee_id',
+        'custom_role': 'custom:role'
+      },
+      'Address Attributes': {
+        'address.street_address': 'address',
+        'address.locality': 'custom:city',
+        'address.region': 'custom:state',
+        'address.postal_code': 'custom:postal_code',
+        'address.country': 'custom:country'
+      }
+    },
+    sample_id_token: {
+      note: 'This is what your ID token will look like',
+      payload: {
+        'iss': FULL_ISSUER,
+        'sub': 'user-123456',
+        'aud': 'your-client-id',
+        'exp': Math.floor(Date.now() / 1000) + 3600,
+        'iat': Math.floor(Date.now() / 1000),
+        'auth_time': Math.floor(Date.now() / 1000),
+        'email': 'john.doe@example.com',
+        'email_verified': true,
+        'name': 'John Doe',
+        'given_name': 'John',
+        'family_name': 'Doe',
+        'picture': 'https://example.com/john-doe.jpg',
+        'preferred_username': 'johndoe',
+        'locale': 'en-US',
+        'zoneinfo': 'America/New_York',
+        'updated_at': '2024-01-15T10:30:00Z',
+        'phone_number': '+1-555-123-4567',
+        'phone_number_verified': true,
+        'address': {
+          'street_address': '123 Main St',
+          'locality': 'New York',
+          'region': 'NY',
+          'postal_code': '10001',
+          'country': 'US'
+        },
+        'birthdate': '1990-05-15',
+        'gender': 'male',
+        'website': 'https://johndoe.com',
+        'custom_department': 'Engineering',
+        'custom_employee_id': 'EMP001',
+        'custom_role': 'Senior Developer'
+      }
+    }
+  };
+  
+  res.json(claimsInfo);
+  console.log(`[CLAIMS_INFO] ✅ Claims information sent`);
+  return;
+});
+
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
   console.log(`[HEALTH] Health check requested`);
@@ -708,6 +836,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   UserInfo:  ${baseUrl}/userinfo`);
   console.log(`   Health:    ${baseUrl}/health`);
   console.log(`   Logout:    ${baseUrl}/logout`);
+  console.log(`   Claims:    ${baseUrl}/claims-info (📋 For Cognito attribute mapping)`);
   
   console.log(`\n🔐 Configured Clients (${clients.length}):`);
   clients.forEach((client: Client, index) => {
